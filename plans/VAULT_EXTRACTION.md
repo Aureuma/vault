@@ -475,3 +475,47 @@ Union-merged to **30 scopes** at `~/.vault/keyring.json` and
 verified across both source copies before merging. Preserved: `shawn/dev`
 (home-only) and `luma/dev`, `nova/prod`, `sociara/dev`, `sociara/prod`
 (fortd-only) — a "newest file wins" merge would have dropped `shawn/dev`.
+
+---
+
+# FINALIZATION — 2026-08-24 (second pass, no fallbacks)
+
+Operator directive: remove `si build npm vault` fully and keep **no fallback of
+any kind**. Applied and verified:
+
+- **si**: the whole vault-backed npm publish flow is deleted (clap variant with
+  its `publishfromvault`/`publish-from-vault` aliases, dispatch,
+  `run_publish_npm_from_vault`, `resolve_si_command` — its only caller —
+  `resolve_vault_command`, `vault_key_exists`, the integration test, and the
+  RELEASING.md line). Publishing is `si build corepack pnpm publish`; token
+  supply is the operator's own outer wrapper.
+- **si-config**: the `surf.tunnel.vault_key` → `fort_key` alias (field, merge,
+  normalize fallback, tests) is removed. No live settings used it.
+- **viva**: the `vault_env_file` → `fort_env_file` settings alias (field, silent
+  fallback, legacy-acceptance test, doc row) is removed; live settings were
+  migrated first. Rebuilt, reinstalled, tunnel render verified.
+- **vault**: no legacy recognition outside `migrate`. `is_public_key_header`
+  matches only `VAULT_PUBLIC_KEY`; the `LEGACY_*` consts are gone in favour of a
+  generic `encrypted:` sentinel — decrypt refuses EVERY non-current label
+  (old, bare, or unknown) with the `vault migrate` instruction; `check` still
+  classifies sentinel values as ciphertext so it never demands encrypting
+  ciphertext. Hook-marker detection relies on the old marker containing the new
+  substring rather than naming it.
+- **fort**: same sentinel treatment; strictly broader than before (a future
+  unknown label is now rejected instead of enumerated-or-passed-through).
+  Deployed: release 20260824t195743626835312-b1ec2fb5, healthy, serving.
+- **svelta-docs**: `publish-npm-from-vault.sh` deleted (its si-side command no
+  longer exists); RELEASING fallback-path prerequisite dropped in both copies;
+  the Vault pointer page now states refusal, not readability, and the promised
+  `docs/VAULT.md` in this repo (missed C7 chunk) now exists.
+- **disk**: `~/.si/vault/` and `/var/lib/fort/si-vault-keyring.json*` (all
+  `.bak`s) removed — recoverable only from the 2026-08-24 backup tars. Local
+  verdict `.env`s regenerated with the new header.
+
+**The one deliberate exception:** `vault migrate` still understands retired
+labels — it is the converter that eliminates them (and the only recovery path
+for the 1027 old-label viva snapshots), not a serving-path fallback. Deleting
+it would orphan that data; say the word and it goes too.
+
+Suites after finalization: vault 17, fort 31, si 153, viva 69 — all green.
+All 22 safe files re-verified byte-identical to the pre-migration plaintext.
