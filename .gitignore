@@ -1,0 +1,7 @@
+/target
+/bin/
+/.dist/
+*.log
+.env
+.env.*
+!.env.example
