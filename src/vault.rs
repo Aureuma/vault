@@ -1491,10 +1491,14 @@ fn decrypt_value(ciphertext: &str, private_key_hexes: &[String]) -> Result<Strin
     let ciphertext = ciphertext.trim();
     let encoded = if let Some(value) = ciphertext.strip_prefix(VAULT_ENCRYPTED_PREFIX) {
         value.trim()
-    } else if let Some(value) = ciphertext.strip_prefix(LEGACY_SI_ENCRYPTED_PREFIX) {
-        value.trim()
-    } else if let Some(value) = ciphertext.strip_prefix(LEGACY_ENCRYPTED_PREFIX) {
-        value.trim()
+    } else if ciphertext.starts_with(LEGACY_SI_ENCRYPTED_PREFIX)
+        || ciphertext.starts_with(LEGACY_ENCRYPTED_PREFIX)
+    {
+        // A legacy label. Refusing rather than transparently reading it keeps the
+        // steady state single-format; `vault migrate` relabels without re-encrypting.
+        bail!(
+            "[vault] value uses a legacy ciphertext label; run: vault migrate --env-file <path>"
+        );
     } else {
         return Ok(ciphertext.to_owned());
     };
@@ -1803,18 +1807,28 @@ mod tests {
         assert_eq!(decrypt_value(&cipher, &[private]).expect("decrypt"), "s3cret");
     }
 
-    /// The dual-read window: values written by the pre-extraction tool must still
-    /// decrypt after migration relabels only the prefix.
+    /// Steady state is single-format: a legacy label is refused with the migrate
+    /// instruction rather than read transparently, so no file silently stays behind.
     #[test]
-    fn decrypt_accepts_all_three_prefixes_for_same_payload() {
+    fn decrypt_refuses_legacy_labels_and_points_at_migrate() {
         let (public, private) = generate_keypair();
         let cipher = encrypt_value("payload", &public).expect("encrypt");
         let payload = cipher.strip_prefix(VAULT_ENCRYPTED_PREFIX).expect("prefix");
         let keys = [private];
-        for prefix in [VAULT_ENCRYPTED_PREFIX, LEGACY_SI_ENCRYPTED_PREFIX, LEGACY_ENCRYPTED_PREFIX] {
-            let relabelled = format!("{prefix}{payload}");
-            assert_eq!(decrypt_value(&relabelled, &keys).expect("decrypt"), "payload", "{prefix}");
+        assert_eq!(decrypt_value(&cipher, &keys).expect("current"), "payload");
+        for prefix in [LEGACY_SI_ENCRYPTED_PREFIX, LEGACY_ENCRYPTED_PREFIX] {
+            let err = decrypt_value(&format!("{prefix}{payload}"), &keys)
+                .expect_err("legacy label must be refused");
+            assert!(err.to_string().contains("vault migrate"), "{prefix}: {err}");
         }
+    }
+
+    /// ...but a legacy label is still RECOGNISED as ciphertext, so `check` does not
+    /// mistake it for plaintext and `migrate` can still find it.
+    #[test]
+    fn legacy_labels_are_still_recognised_as_encrypted() {
+        assert!(is_encrypted_value("encrypted:si-vault:AA"));
+        assert!(is_encrypted_value("encrypted:AA"));
     }
 
     #[test]
