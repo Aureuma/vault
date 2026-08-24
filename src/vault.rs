@@ -16,10 +16,11 @@ use std::process::Command as StdCommand;
 use crate::support::{OutputFormat, default_home_dir, show_trust_lookup};
 
 const VAULT_PUBLIC_KEY_HEADER: &str = "VAULT_PUBLIC_KEY";
-const LEGACY_SI_PUBLIC_KEY_HEADER: &str = "SI_VAULT_PUBLIC_KEY";
 const VAULT_ENCRYPTED_PREFIX: &str = "encrypted:vault:";
-const LEGACY_SI_ENCRYPTED_PREFIX: &str = "encrypted:si-vault:";
-const LEGACY_ENCRYPTED_PREFIX: &str = "encrypted:";
+/// Generic ciphertext sentinel. Anything starting with this that is not the
+/// current prefix is refused as unrecognized -- never read, never treated as
+/// plaintext. `migrate` is the only code that converts old labels.
+const ENCRYPTED_SENTINEL: &str = "encrypted:";
 
 /// Environment flag a host runtime sets to forbid local secret operations inside
 /// semi-trusted workers, which must go through the policy API (fort) instead.
@@ -28,8 +29,7 @@ const LEGACY_ENCRYPTED_PREFIX: &str = "encrypted:";
 const DENY_LOCAL_SECRET_OPS_ENV: &str = "DENY_LOCAL_SECRET_OPS";
 
 fn is_public_key_header(key: &str) -> bool {
-    let key = key.trim();
-    key == VAULT_PUBLIC_KEY_HEADER || key == LEGACY_SI_PUBLIC_KEY_HEADER
+    key.trim() == VAULT_PUBLIC_KEY_HEADER
 }
 
 fn deny_local_secret_ops() -> bool {
@@ -1317,14 +1317,14 @@ fn migrate_dotenv_bytes(bytes: &[u8]) -> Result<(Vec<u8>, usize, usize)> {
         let mut new_key = key.clone();
         let mut new_value: Option<String> = None;
 
-        if key.trim() == LEGACY_SI_PUBLIC_KEY_HEADER {
+        if key.trim() == "SI_VAULT_PUBLIC_KEY" {
             new_key = VAULT_PUBLIC_KEY_HEADER.to_owned();
             headers += 1;
         }
-        if let Some(rest) = trimmed.strip_prefix(LEGACY_SI_ENCRYPTED_PREFIX) {
+        if let Some(rest) = trimmed.strip_prefix("encrypted:si-vault:") {
             new_value = Some(format!("{VAULT_ENCRYPTED_PREFIX}{rest}"));
         } else if !trimmed.starts_with(VAULT_ENCRYPTED_PREFIX)
-            && let Some(rest) = trimmed.strip_prefix(LEGACY_ENCRYPTED_PREFIX)
+            && let Some(rest) = trimmed.strip_prefix(ENCRYPTED_SENTINEL)
         {
             new_value = Some(format!("{VAULT_ENCRYPTED_PREFIX}{rest}"));
         }
@@ -1467,10 +1467,7 @@ fn validate_key_name(key: &str) -> Result<()> {
 }
 
 fn is_encrypted_value(raw: &str) -> bool {
-    let raw = raw.trim();
-    raw.starts_with(VAULT_ENCRYPTED_PREFIX)
-        || raw.starts_with(LEGACY_SI_ENCRYPTED_PREFIX)
-        || raw.starts_with(LEGACY_ENCRYPTED_PREFIX)
+    raw.trim().starts_with(ENCRYPTED_SENTINEL)
 }
 
 fn encrypt_value(plain: &str, public_key_hex: &str) -> Result<String> {
@@ -1491,13 +1488,11 @@ fn decrypt_value(ciphertext: &str, private_key_hexes: &[String]) -> Result<Strin
     let ciphertext = ciphertext.trim();
     let encoded = if let Some(value) = ciphertext.strip_prefix(VAULT_ENCRYPTED_PREFIX) {
         value.trim()
-    } else if ciphertext.starts_with(LEGACY_SI_ENCRYPTED_PREFIX)
-        || ciphertext.starts_with(LEGACY_ENCRYPTED_PREFIX)
-    {
-        // A legacy label. Refusing rather than transparently reading it keeps the
-        // steady state single-format; `vault migrate` relabels without re-encrypting.
+    } else if ciphertext.starts_with(ENCRYPTED_SENTINEL) {
+        // Any other encrypted-ish label is refused, never read and never treated
+        // as plaintext. `vault migrate` relabels known old formats in place.
         bail!(
-            "[vault] value uses a legacy ciphertext label; run: vault migrate --env-file <path>"
+            "[vault] value uses an unrecognized ciphertext label; run: vault migrate --env-file <path>"
         );
     } else {
         return Ok(ciphertext.to_owned());
@@ -1610,8 +1605,10 @@ fn render_vault_pre_commit_hook() -> String {
 }
 
 fn is_managed_hook(bytes: &[u8]) -> bool {
-    let text = String::from_utf8_lossy(bytes);
-    text.contains("vault:hook pre-commit") || text.contains("si-vault:hook pre-commit")
+    // Note: the pre-extraction marker "# si-vault:hook pre-commit vN" contains this
+    // substring, so hooks installed by the old tool are still recognised (and thus
+    // replaceable with --force) without naming them.
+    String::from_utf8_lossy(bytes).contains("vault:hook pre-commit")
 }
 
 fn write_executable_file(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -1807,28 +1804,31 @@ mod tests {
         assert_eq!(decrypt_value(&cipher, &[private]).expect("decrypt"), "s3cret");
     }
 
-    /// Steady state is single-format: a legacy label is refused with the migrate
-    /// instruction rather than read transparently, so no file silently stays behind.
+    /// Steady state is single-format: ANY non-current encrypted-ish label is refused
+    /// with the migrate instruction rather than read transparently or -- worse --
+    /// returned as plaintext.
     #[test]
-    fn decrypt_refuses_legacy_labels_and_points_at_migrate() {
+    fn decrypt_refuses_every_unrecognized_label_and_points_at_migrate() {
         let (public, private) = generate_keypair();
         let cipher = encrypt_value("payload", &public).expect("encrypt");
         let payload = cipher.strip_prefix(VAULT_ENCRYPTED_PREFIX).expect("prefix");
         let keys = [private];
         assert_eq!(decrypt_value(&cipher, &keys).expect("current"), "payload");
-        for prefix in [LEGACY_SI_ENCRYPTED_PREFIX, LEGACY_ENCRYPTED_PREFIX] {
+        for prefix in ["encrypted:si-vault:", "encrypted:", "encrypted:unknown:"] {
             let err = decrypt_value(&format!("{prefix}{payload}"), &keys)
-                .expect_err("legacy label must be refused");
+                .expect_err("unrecognized label must be refused");
             assert!(err.to_string().contains("vault migrate"), "{prefix}: {err}");
         }
     }
 
-    /// ...but a legacy label is still RECOGNISED as ciphertext, so `check` does not
-    /// mistake it for plaintext and `migrate` can still find it.
+    /// ...but the sentinel is still RECOGNISED as ciphertext-shaped, so `check`
+    /// does not mistake old labels for plaintext and `migrate` can find them.
     #[test]
-    fn legacy_labels_are_still_recognised_as_encrypted() {
+    fn encrypted_sentinel_values_are_never_classified_plaintext() {
         assert!(is_encrypted_value("encrypted:si-vault:AA"));
         assert!(is_encrypted_value("encrypted:AA"));
+        assert!(is_encrypted_value("encrypted:unknown:AA"));
+        assert!(!is_encrypted_value("plain"));
     }
 
     #[test]
@@ -1840,24 +1840,16 @@ mod tests {
     }
 
     #[test]
-    fn is_encrypted_value_recognises_legacy_and_current() {
-        assert!(is_encrypted_value("encrypted:vault:AA"));
-        assert!(is_encrypted_value("encrypted:si-vault:AA"));
-        assert!(is_encrypted_value("encrypted:AA"));
-        assert!(!is_encrypted_value("plain"));
-    }
-
-    #[test]
-    fn public_key_header_recognises_both_names() {
+    fn public_key_header_recognises_only_the_current_name() {
         assert!(is_public_key_header("VAULT_PUBLIC_KEY"));
-        assert!(is_public_key_header("SI_VAULT_PUBLIC_KEY"));
+        assert!(!is_public_key_header("SI_VAULT_PUBLIC_KEY"));
         assert!(!is_public_key_header("OTHER"));
     }
 
     /// The managed-hook marker must match the legacy marker too, or
     /// `hooks install --force` cannot recognise (and replace) pre-extraction hooks.
     #[test]
-    fn managed_hook_detection_covers_legacy_marker() {
+    fn managed_hook_detection_covers_old_markers_by_substring() {
         assert!(is_managed_hook(b"#!/bin/sh\n# vault:hook pre-commit v1\n"));
         assert!(is_managed_hook(b"#!/bin/sh\n# si-vault:hook pre-commit v1\n"));
         assert!(is_managed_hook(b"#!/bin/sh\n# si-vault:hook pre-commit v2\n"));
