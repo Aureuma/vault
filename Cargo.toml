@@ -1,0 +1,29 @@
+[package]
+name = "vault"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+license = "AGPL-3.0-only"
+repository = "https://github.com/Aureuma/vault"
+description = "Standalone dotenv secrets tool: per-value ECIES encryption, local keyring, git pre-commit guard"
+
+[dependencies]
+anyhow = "1.0.100"
+base64 = "0.22.1"
+chrono = { version = "0.4.42", features = ["clock", "serde"] }
+clap = { version = "4.6.0", features = ["derive"] }
+ecies = { version = "0.2.10", default-features = false, features = ["std", "pure"] }
+hex = "0.4.3"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+sha2 = "0.10.9"
+tempfile = "3.23.0"
+thiserror = "2.0.17"
+
+[[bin]]
+name = "vault"
+path = "src/main.rs"
+
+[lib]
+name = "vault"
+path = "src/lib.rs"
