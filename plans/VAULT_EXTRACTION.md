@@ -397,3 +397,81 @@ PASS (negative control confirmed: plaintext value → exit 1 naming the key).
    no remote found in inventory).
 5. `si creds` users muscle-memory: acceptable loss? (I1 forbids a shim; a shell alias
    outside the repo is the escape hatch.)
+
+---
+
+# EXECUTION LOG — 2026-08-24
+
+Executed end to end. Every gate in §7 passed. Final state: vault 18 tests,
+fort 31, si 154, viva 70 — all green; all 22 `safe` files decrypt to
+**byte-identical plaintext** vs the pre-migration baseline (sha256, all 0600);
+production fortd healthy and serving; `marsmaria.com`, `ls-dev.lingospeak.ai`,
+`surf-browser.aureuma.ai` all 200.
+
+## Phase order actually used
+
+`PRE → C → F1(+deploy) → H → S1 → K → F2(+deploy) → X → Z1 → V2 → F3(+deploy) → FIN`
+
+**H moved earlier** (before S1 rather than after K): swapping the hooks first
+removes the dependency on the stale dev-tree `si` binary immediately, and the
+new hook reads both formats, so it is correct on either side of the migration.
+
+## Two live bugs found and fixed that the plan had not predicted
+
+1. **`git checkout` silently breaks fort.** Restoring a `safe` file with git
+   recreates it at umask perms (0664). fort's `ensure_strict_secret_file`
+   rejects `mode & 0o077 != 0`, so **every fort read of viva secrets had been
+   failing with a 500** since an earlier unrelated `git checkout` of
+   `viva/.env.{dev,prod}`. Fixed with `chmod 600`. **New standing rule: after
+   any git operation that rewrites a `safe` file, re-assert 0600.** A `git
+   revert` of S1 would reintroduce this.
+
+2. **viva was a third holder of the ciphertext marker, on the serving path.**
+   `viva/src/vaultsi.rs` gated `prepare_env_files` (used by deploy, tunnel,
+   backup, umami) on `"encrypted:si-vault:"`. After S1 every file read as *not
+   encrypted*, so viva would have passed ciphertext straight into containers as
+   env values. Fixed to dual-read before any deploy ran. The plan listed viva
+   as a marker holder but scored it a doc/rebuild task, not a serving-path
+   correctness bug.
+
+## Deviations from the plan, with reasons
+
+- **`vault_compat.rs` ported as one module**, not split into cli/keyring/dotenv/
+  crypto/hooks. The ECIES and dotenv paths are load-bearing; a faithful port is
+  verifiable, a hand-split is not. Splitting remains cosmetic follow-up.
+- **D-7 dropped: headerless files stay headerless.** `luma/.env.dev` and both
+  `sociara` files gained no `VAULT_PUBLIC_KEY`. Adding one would have changed
+  their line counts, weakening GATE C from a strict equality to an explained
+  difference. They decrypt correctly without it (fort encrypts from the keyring,
+  never the file header).
+- **`surf.tunnel.vault_key` kept** in si-config. It is a legacy alias for
+  `fort_key` — about fort keys, not the vault tool — and removing it would break
+  any `settings.toml` still using it. No live settings use it.
+- **Legacy reads rejected, not silently accepted** (V2/F3). `vault decrypt`
+  fails with `run: vault migrate --env-file <path>`; fortd returns an error. A
+  file left behind announces itself instead of working quietly forever.
+- **`si build npm vault` rewired, not removed** — resolves `vault` via
+  `VAULT_BIN` or PATH.
+- **CHANGELOG history kept** (D-12), and `luma` turned out not to be a git repo,
+  so its doc edits are local-only. `sociara` has no working remote; its commit
+  is local.
+
+## Things that must NOT be reverted casually
+
+- Reverting S1 in `safe` re-introduces the legacy labels that fort now
+  **rejects** → every read fails. Recovery: `vault migrate --dir .`, then
+  `chmod 600`.
+- `~/.viva/snapshots` still holds **1027** old-label copies. Restoring one
+  requires `vault migrate --env-file <restored>` first; viva detects both
+  labels, but `vault` and fort no longer decrypt the old one.
+- Backups taken before the migration: `/home/shawn/vault-migration-backup-20260824/`
+  (both keyrings + all 9 original hooks + pre-migration plaintext hashes +
+  previous `si`/`viva` binaries + viva settings).
+
+## Keyring consolidation result
+
+Union-merged to **30 scopes** at `~/.vault/keyring.json` and
+`/var/lib/fort/vault-keyring.json` (both 0600). Single canonical keypair
+verified across both source copies before merging. Preserved: `shawn/dev`
+(home-only) and `luma/dev`, `nova/prod`, `sociara/dev`, `sociara/prod`
+(fortd-only) — a "newest file wins" merge would have dropped `shawn/dev`.
