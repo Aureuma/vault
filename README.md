@@ -3,7 +3,7 @@
 Standalone dotenv secrets tool: per-value ECIES encryption of `.env` files with a
 local keyring, a pre-commit plaintext guard, and ciphertext designed to live in git.
 
-Extracted from the `si` monorepo (formerly `si vault`). This repo owns:
+Extracted from the `si` monorepo (formerly `vault`). This repo owns:
 
 - the `vault` binary (CLI: keypair, status, check, hooks, encrypt, decrypt, restore,
   set, unset, get, list, run, trust, import-dotenv, migrate)
