@@ -1,6 +1,6 @@
 # VAULT_EXTRACTION — extracting `si vault` into this repo, end to end
 
-**Status:** planned, not yet executed. **Author:** Claude (Opus), 2026-08-24, from a
+**Status:** EXECUTED 2026-08-24 — see the Execution Log at the end. **Author:** Claude (Opus), 2026-08-24, from a
 4-way verified source inventory (si repo, fort repo, external consumers, baseline tests;
 each inventory adversarially re-swept). Every file:line below was read, not assumed.
 
