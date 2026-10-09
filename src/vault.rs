@@ -578,7 +578,7 @@ fn run_vault_hooks_status(vault_dir: Option<PathBuf>) -> Result<()> {
             if is_managed_hook(&bytes) {
                 println!("pre-commit: installed ({})", hook_path.display());
             } else {
-                println!("pre-commit: present (not managed by si) ({})", hook_path.display());
+                println!("pre-commit: present (not managed by vault) ({})", hook_path.display());
             }
         }
         Err(err) if err.kind() == io::ErrorKind::NotFound => {
@@ -598,7 +598,7 @@ fn run_vault_hooks_uninstall(vault_dir: Option<PathBuf>) -> Result<()> {
         Err(err) => return Err(err).with_context(|| format!("read {}", hook_path.display())),
     };
     if !is_managed_hook(&bytes) {
-        bail!("refusing to remove non-si hook: {}", hook_path.display());
+        bail!("refusing to remove non-vault hook: {}", hook_path.display());
     }
     fs::remove_file(&hook_path).with_context(|| format!("remove {}", hook_path.display()))?;
     println!("removed: {}", hook_path.display());
