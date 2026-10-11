@@ -113,7 +113,7 @@ jobs:
           cargo build --locked --release --jobs 2 --target "${rust_target}" --bin vault
           bin_dir="target/${rust_target}/release"
           [[ -x "${bin_dir}/vault" ]] || { echo "missing ${bin_dir}/vault" >&2; exit 1; }
-          "${bin_dir}/vault" version
+          "${bin_dir}/vault" --version
           mkdir -p dist
           archive="dist/vault_${version}_${os}_${arch}.tar.gz"
           tar -czf "${archive}" -C "${bin_dir}" vault
@@ -162,7 +162,8 @@ jobs:
             arch="${target##*-}"
             asset="dist/vault_${version}_${os}_${arch}.tar.gz"
             [[ -f "${asset}" ]] || { echo "missing ${asset}" >&2; exit 1; }
-            tar -tzf "${asset}" | grep -qx "vault" || { echo "${asset} missing vault binary" >&2; exit 1; }
+            contents="$(tar -tzf "${asset}")"
+            grep -qx "vault" <<<"${contents}" || { echo "${asset} missing vault binary" >&2; exit 1; }
           done
           (cd dist && sha256sum -c checksums.txt)
           echo "release archives verified for ${tag}"
