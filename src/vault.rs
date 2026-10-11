@@ -183,7 +183,7 @@ pub enum VaultCommand {
 }
 
 #[derive(Debug, Subcommand)]
-pub(crate) enum VaultHooksCommand {
+pub enum VaultHooksCommand {
     Install {
         #[arg(long = "vault-dir")]
         vault_dir: Option<PathBuf>,
@@ -202,7 +202,7 @@ pub(crate) enum VaultHooksCommand {
 }
 
 #[derive(Debug, Subcommand)]
-pub(crate) enum VaultTrustCommand {
+pub enum VaultTrustCommand {
     Lookup {
         #[arg(long)]
         path: PathBuf,
@@ -218,7 +218,7 @@ pub(crate) enum VaultTrustCommand {
 }
 
 #[derive(Debug, Clone, Args)]
-pub(crate) struct VaultTargetArgs {
+pub struct VaultTargetArgs {
     #[arg(long = "env-file")]
     env_file: Option<PathBuf>,
     #[arg(long = "file")]

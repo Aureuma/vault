@@ -1,0 +1,236 @@
+name: Release Assets
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build (for example v1.0.3)
+        required: true
+        type: string
+      publish:
+        description: Upload release assets to the GitHub Release
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: release-assets-${{ github.event.release.tag_name || github.event.inputs.tag || github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  attestations: write
+  id-token: write
+
+env:
+  CARGO_BUILD_JOBS: 2
+
+jobs:
+  resolve-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      checkout_ref: ${{ steps.resolve.outputs.checkout_ref }}
+      publish: ${{ steps.resolve.outputs.publish }}
+    steps:
+      - name: Resolve release inputs
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ github.event.release.tag_name }}"
+          checkout_ref="${{ github.event.release.tag_name }}"
+          publish="true"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            tag="${{ github.event.inputs.tag }}"
+            checkout_ref="${GITHUB_SHA}"
+            publish="${{ github.event.inputs.publish }}"
+          fi
+          if [[ -z "${tag}" ]]; then
+            echo "No release tag provided." >&2
+            exit 1
+          fi
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "checkout_ref=${checkout_ref}" >> "${GITHUB_OUTPUT}"
+          echo "publish=${publish}" >> "${GITHUB_OUTPUT}"
+          echo "Preparing release assets for tag ${tag} from ${checkout_ref} (publish=${publish})"
+
+  build-release-asset:
+    name: Build ${{ matrix.target }}
+    needs: [resolve-tag]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-amd64
+            runner: ubuntu-latest
+            rust_target: x86_64-unknown-linux-gnu
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+            rust_target: aarch64-unknown-linux-gnu
+          - target: darwin-amd64
+            runner: macos-15-intel
+            rust_target: x86_64-apple-darwin
+          - target: darwin-arm64
+            runner: macos-latest
+            rust_target: aarch64-apple-darwin
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-tag.outputs.checkout_ref }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@1.94.0
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Validate release tag and package version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ needs.resolve-tag.outputs.tag }}"
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)"
+          if [[ "v${version}" != "${tag}" ]]; then
+            echo "tag ${tag} does not match Cargo.toml version ${version}" >&2
+            exit 1
+          fi
+          echo "tag ${tag} matches package version ${version}"
+
+      - name: Build release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ needs.resolve-tag.outputs.tag }}"
+          version="${tag#v}"
+          target="${{ matrix.target }}"
+          rust_target="${{ matrix.rust_target }}"
+          os="${target%%-*}"
+          arch="${target##*-}"
+          cargo build --locked --release --jobs 2 --target "${rust_target}" --bin vault
+          bin_dir="target/${rust_target}/release"
+          [[ -x "${bin_dir}/vault" ]] || { echo "missing ${bin_dir}/vault" >&2; exit 1; }
+          "${bin_dir}/vault" version
+          mkdir -p dist
+          archive="dist/vault_${version}_${os}_${arch}.tar.gz"
+          tar -czf "${archive}" -C "${bin_dir}" vault
+          ls -lah dist
+
+      - name: Upload target archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vault-release-${{ matrix.target }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  publish-assets:
+    name: Verify and publish release assets
+    needs: [resolve-tag, build-release-asset]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-tag.outputs.checkout_ref }}
+
+      - name: Download target archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vault-release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Write checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum vault_*.tar.gz > checksums.txt)
+          cat dist/checksums.txt
+          ls -lah dist
+
+      - name: Verify release archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ needs.resolve-tag.outputs.tag }}"
+          version="${tag#v}"
+          for target in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+            os="${target%%-*}"
+            arch="${target##*-}"
+            asset="dist/vault_${version}_${os}_${arch}.tar.gz"
+            [[ -f "${asset}" ]] || { echo "missing ${asset}" >&2; exit 1; }
+            tar -tzf "${asset}" | grep -qx "vault" || { echo "${asset} missing vault binary" >&2; exit 1; }
+          done
+          (cd dist && sha256sum -c checksums.txt)
+          echo "release archives verified for ${tag}"
+
+      - name: Upload combined release dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vault-release-dist
+          path: |
+            dist/*.tar.gz
+            dist/checksums.txt
+          if-no-files-found: error
+
+      - name: Upload assets to GitHub Release
+        if: needs.resolve-tag.outputs.publish == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ needs.resolve-tag.outputs.tag }}"
+          gh release view "${tag}" --repo "${{ github.repository }}" >/dev/null
+          gh release upload "${tag}" dist/*.tar.gz dist/checksums.txt --repo "${{ github.repository }}" --clobber
+
+      - name: Attest release artifacts
+        if: needs.resolve-tag.outputs.publish == 'true'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/checksums.txt
+
+  verify-release-distribution:
+    name: Verify release assets
+    needs: [resolve-tag, publish-assets]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ needs.resolve-tag.outputs.publish }}" != "true" ]]; then
+            echo "Validation-only run; skipping published release verification."
+            exit 0
+          fi
+
+          tag="${{ needs.resolve-tag.outputs.tag }}"
+          version="${tag#v}"
+          if [[ -z "${version}" || "${version}" == "${tag}" ]]; then
+            echo "invalid tag: ${tag}" >&2
+            exit 1
+          fi
+
+          assets="$(gh release view "${tag}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name')"
+          required_assets=(
+            "vault_${version}_linux_amd64.tar.gz"
+            "vault_${version}_linux_arm64.tar.gz"
+            "vault_${version}_darwin_amd64.tar.gz"
+            "vault_${version}_darwin_arm64.tar.gz"
+            "checksums.txt"
+          )
+          for asset in "${required_assets[@]}"; do
+            if ! grep -Fxq "${asset}" <<<"${assets}"; then
+              echo "missing release asset: ${asset}" >&2
+              exit 1
+            fi
+          done
+          echo "release assets verified for ${tag}"

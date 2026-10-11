@@ -2,7 +2,8 @@
 
 `vault` encrypts the **values** of `.env` files in place, leaving keys and
 comments readable, so ciphertext can live in git and secret changes review as
-diffs. Extracted from the `si` monorepo; this repo has no `si` dependency.
+diffs. This is a standalone repository with no external workspace
+dependency.
 
 ## Format
 
