@@ -34,7 +34,6 @@ is enforced across scopes. This is a plain JSON state file, not the OS keychain.
 | `run` | decrypt into a child process env: `vault run -- <cmd>` |
 | `restore` | restore the pre-decrypt backup (`.vault-restore/`) |
 | `trust lookup` | trust-store fingerprint lookup |
-| `import-dotenv` | bulk-import plaintext dotenv trees |
 | `migrate` | relabel retired formats to the current one |
 
 Shared target args: `--env-file/--file`, `--repo`, `--env`, `--scope`; `dev`/`prod`

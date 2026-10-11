@@ -6,7 +6,7 @@ local keyring, a pre-commit plaintext guard, and ciphertext designed to live in 
 This repo owns:
 
 - the `vault` binary (CLI: keypair, status, check, hooks, encrypt, decrypt, restore,
-  set, unset, get, list, run, trust, import-dotenv, migrate)
+  set, unset, get, list, run, trust, migrate)
 - the dotenv ciphertext format (`encrypted:vault:` prefix, `VAULT_PUBLIC_KEY` header)
 - the keyring (`~/.vault/keyring.json`, override `VAULT_KEYRING_FILE`)
 - the trust store and the managed git pre-commit hook
