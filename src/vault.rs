@@ -1,9 +1,9 @@
+use crate::support::git_repo_root_from;
 use anyhow::{Context, Result, anyhow, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use clap::{ArgAction, Args, Subcommand};
 use ecies::{decrypt as ecies_decrypt, encrypt as ecies_encrypt};
 use serde::{Deserialize, Serialize};
-use crate::support::git_repo_root_from;
 use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::fs;
@@ -34,7 +34,10 @@ fn is_public_key_header(key: &str) -> bool {
 
 fn deny_local_secret_ops() -> bool {
     matches!(
-        env::var(DENY_LOCAL_SECRET_OPS_ENV).ok().as_deref().map(str::trim),
+        env::var(DENY_LOCAL_SECRET_OPS_ENV)
+            .ok()
+            .as_deref()
+            .map(str::trim),
         Some("1") | Some("true") | Some("yes")
     )
 }
@@ -273,7 +276,10 @@ struct DotenvDoc {
 
 impl Default for DotenvDoc {
     fn default() -> Self {
-        Self { lines: Vec::new(), default_nl: "\n".to_owned() }
+        Self {
+            lines: Vec::new(),
+            default_nl: "\n".to_owned(),
+        }
     }
 }
 
@@ -340,31 +346,56 @@ struct EncryptStats {
 
 pub fn run_vault_command(command: VaultCommand) -> Result<()> {
     match command {
-        VaultCommand::Keypair { target, rotate, format } => {
-            run_vault_keypair(target, rotate, format)
-        }
-        VaultCommand::Status { target, vault_dir, format } => {
-            run_vault_status(target, vault_dir, format)
-        }
-        VaultCommand::Check { file, vault_dir, staged, all, include_examples } => {
-            run_vault_check(file, vault_dir, staged, all, include_examples)
-        }
+        VaultCommand::Keypair {
+            target,
+            rotate,
+            format,
+        } => run_vault_keypair(target, rotate, format),
+        VaultCommand::Status {
+            target,
+            vault_dir,
+            format,
+        } => run_vault_status(target, vault_dir, format),
+        VaultCommand::Check {
+            file,
+            vault_dir,
+            staged,
+            all,
+            include_examples,
+        } => run_vault_check(file, vault_dir, staged, all, include_examples),
         VaultCommand::Hooks { command } => run_vault_hooks(command),
-        VaultCommand::Encrypt { target, stdout, reencrypt } => {
-            run_vault_encrypt(target, stdout, reencrypt)
-        }
-        VaultCommand::Decrypt { target, stdout, inplace, in_place } => {
-            run_vault_decrypt(target, stdout, inplace || in_place)
-        }
+        VaultCommand::Encrypt {
+            target,
+            stdout,
+            reencrypt,
+        } => run_vault_encrypt(target, stdout, reencrypt),
+        VaultCommand::Decrypt {
+            target,
+            stdout,
+            inplace,
+            in_place,
+        } => run_vault_decrypt(target, stdout, inplace || in_place),
         VaultCommand::Restore { env_file, file } => run_vault_restore(env_file.or(file)),
-        VaultCommand::Set { target, section: _, format: _, key, value, stdin, plain } => {
-            run_vault_set(target, key, value, stdin, plain)
-        }
+        VaultCommand::Set {
+            target,
+            section: _,
+            format: _,
+            key,
+            value,
+            stdin,
+            plain,
+        } => run_vault_set(target, key, value, stdin, plain),
         VaultCommand::Unset { target, key } => run_vault_unset(target, key),
-        VaultCommand::Get { target, key, reveal } => run_vault_get(target, key, reveal),
-        VaultCommand::List { target, vault_dir, format } => {
-            run_vault_list(target, vault_dir, format)
-        }
+        VaultCommand::Get {
+            target,
+            key,
+            reveal,
+        } => run_vault_get(target, key, reveal),
+        VaultCommand::List {
+            target,
+            vault_dir,
+            format,
+        } => run_vault_list(target, vault_dir, format),
         VaultCommand::Run {
             target,
             vault_dir,
@@ -383,13 +414,20 @@ pub fn run_vault_command(command: VaultCommand) -> Result<()> {
             args,
         ),
         VaultCommand::Trust { command } => match command {
-            VaultTrustCommand::Lookup { path, repo_root, file, fingerprint, format } => {
-                show_trust_lookup(path, &repo_root, &file, &fingerprint, format)
-            }
+            VaultTrustCommand::Lookup {
+                path,
+                repo_root,
+                file,
+                fingerprint,
+                format,
+            } => show_trust_lookup(path, &repo_root, &file, &fingerprint, format),
         },
-        VaultCommand::Migrate { env_file, dir, dry_run, include_examples } => {
-            run_vault_migrate(env_file, dir, dry_run, include_examples)
-        }
+        VaultCommand::Migrate {
+            env_file,
+            dir,
+            dry_run,
+            include_examples,
+        } => run_vault_migrate(env_file, dir, dry_run, include_examples),
     }
 }
 
@@ -578,7 +616,10 @@ fn run_vault_hooks_status(vault_dir: Option<PathBuf>) -> Result<()> {
             if is_managed_hook(&bytes) {
                 println!("pre-commit: installed ({})", hook_path.display());
             } else {
-                println!("pre-commit: present (not managed by vault) ({})", hook_path.display());
+                println!(
+                    "pre-commit: present (not managed by vault) ({})",
+                    hook_path.display()
+                );
             }
         }
         Err(err) if err.kind() == io::ErrorKind::NotFound => {
@@ -611,7 +652,11 @@ fn run_vault_encrypt(target: VaultTargetArgs, stdout: bool, reencrypt: bool) -> 
     let entry = ensure_keyring_entry(&keyring_path, &target, false)?;
     let mut doc = read_or_empty(&target.env_file)?;
     doc.ensure_public_key(&entry.public_key);
-    let stats = doc.encrypt(&entry.public_key, &private_key_candidates(&entry), reencrypt)?;
+    let stats = doc.encrypt(
+        &entry.public_key,
+        &private_key_candidates(&entry),
+        reencrypt,
+    )?;
     if stdout {
         print!("{}", String::from_utf8_lossy(&doc.bytes()));
     } else {
@@ -693,7 +738,11 @@ fn run_vault_set(
     println!("file={}", target.env_file.display());
     println!("repo={}", target.repo);
     println!("env={}", target.env);
-    println!("set={} ({})", key.trim(), if plain { "plaintext" } else { "encrypted" });
+    println!(
+        "set={} ({})",
+        key.trim(),
+        if plain { "plaintext" } else { "encrypted" }
+    );
     Ok(())
 }
 
@@ -717,12 +766,18 @@ fn run_vault_get(target: VaultTargetArgs, key: String, reveal: bool) -> Result<(
     validate_key_name(&key)?;
     let target = resolve_vault_target(&target, None)?;
     let doc = DotenvDoc::read(&target.env_file)?;
-    let value = doc.lookup(&key).ok_or_else(|| anyhow!("key not found: {}", key.trim()))?;
+    let value = doc
+        .lookup(&key)
+        .ok_or_else(|| anyhow!("key not found: {}", key.trim()))?;
     if !reveal {
         println!(
             "{}: {}",
             key.trim(),
-            if is_encrypted_value(&value) { "encrypted" } else { "plaintext" }
+            if is_encrypted_value(&value) {
+                "encrypted"
+            } else {
+                "plaintext"
+            }
         );
         return Ok(());
     }
@@ -732,7 +787,10 @@ fn run_vault_get(target: VaultTargetArgs, key: String, reveal: bool) -> Result<(
     }
     let keyring_path = resolve_keyring_path();
     let entry = load_keyring_entry_or_canonical(&keyring_path, &target)?;
-    println!("{}", decrypt_value(&value, &private_key_candidates(&entry))?);
+    println!(
+        "{}",
+        decrypt_value(&value, &private_key_candidates(&entry))?
+    );
     Ok(())
 }
 
@@ -853,28 +911,40 @@ fn resolve_vault_target(
     let repo_root = env_file
         .parent()
         .and_then(|path| git_repo_root_from(path).ok())
-        .unwrap_or_else(|| env_file.parent().map(Path::to_path_buf).unwrap_or_else(|| cwd.clone()));
+        .unwrap_or_else(|| {
+            env_file
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| cwd.clone())
+        });
     let repo = target
         .repo
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
-        .or_else(|| repo_root.file_name().map(|value| value.to_string_lossy().trim().to_string()))
+        .or_else(|| {
+            repo_root
+                .file_name()
+                .map(|value| value.to_string_lossy().trim().to_string())
+        })
         .filter(|value| !value.is_empty())
         .ok_or_else(|| anyhow!("unable to determine vault repo name"))?;
     let env_name = explicit_env_name
         .unwrap_or_else(|| infer_env_name(&env_file).unwrap_or_else(|| "dev".to_owned()));
-    Ok(VaultTarget { repo_root, repo, env: env_name, env_file })
+    Ok(VaultTarget {
+        repo_root,
+        repo,
+        env: env_name,
+        env_file,
+    })
 }
 
 fn resolve_keyring_path() -> PathBuf {
     env::var_os("VAULT_KEYRING_FILE")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            default_home_dir().join(".vault").join("keyring.json")
-        })
+        .unwrap_or_else(|| default_home_dir().join(".vault").join("keyring.json"))
 }
 
 fn ensure_keyring_entry(path: &Path, target: &VaultTarget, rotate: bool) -> Result<KeyringEntry> {
@@ -1023,7 +1093,10 @@ fn save_keyring_doc(path: &Path, doc: &KeyringDoc) -> Result<()> {
 
 fn generate_keypair() -> (String, String) {
     let (secret, public) = ecies::utils::generate_keypair();
-    (hex::encode(public.serialize_compressed()), hex::encode(secret.serialize()))
+    (
+        hex::encode(public.serialize_compressed()),
+        hex::encode(secret.serialize()),
+    )
 }
 
 fn private_key_candidates(entry: &KeyringEntry) -> Vec<String> {
@@ -1038,7 +1111,11 @@ fn private_key_candidates(entry: &KeyringEntry) -> Vec<String> {
 }
 
 fn keyring_scope_key(target: &VaultTarget) -> String {
-    format!("{}/{}", target.repo.to_ascii_lowercase(), target.env.to_ascii_lowercase())
+    format!(
+        "{}/{}",
+        target.repo.to_ascii_lowercase(),
+        target.env.to_ascii_lowercase()
+    )
 }
 
 fn normalize_hex(value: &str) -> String {
@@ -1127,7 +1204,13 @@ impl DotenvDoc {
             self.lines[index].text = assignment;
             return;
         }
-        self.lines.insert(0, DotenvLine { text: assignment, nl: self.default_nl.clone() });
+        self.lines.insert(
+            0,
+            DotenvLine {
+                text: assignment,
+                nl: self.default_nl.clone(),
+            },
+        );
     }
 
     fn lookup(&self, key: &str) -> Option<String> {
@@ -1165,7 +1248,10 @@ impl DotenvDoc {
         {
             line.nl = self.default_nl.clone();
         }
-        self.lines.push(DotenvLine { text: rendered, nl: self.default_nl.clone() });
+        self.lines.push(DotenvLine {
+            text: rendered,
+            nl: self.default_nl.clone(),
+        });
         Ok(())
     }
 
@@ -1173,7 +1259,9 @@ impl DotenvDoc {
         let key = key.trim();
         let original_len = self.lines.len();
         self.lines.retain(|line| {
-            parse_assignment(&line.text).map(|(line_key, _)| line_key != key).unwrap_or(true)
+            parse_assignment(&line.text)
+                .map(|(line_key, _)| line_key != key)
+                .unwrap_or(true)
         });
         self.lines.len() != original_len
     }
@@ -1193,7 +1281,10 @@ impl DotenvDoc {
             }
             entries.insert(key.clone(), DotenvEntry { key, value_raw });
         }
-        Ok(order.into_iter().filter_map(|key| entries.remove(&key)).collect())
+        Ok(order
+            .into_iter()
+            .filter_map(|key| entries.remove(&key))
+            .collect())
     }
 
     fn scan(&self) -> Result<DotenvScan> {
@@ -1279,8 +1370,10 @@ impl DotenvDoc {
                 continue;
             }
             if is_encrypted_value(&entry.value_raw) {
-                values
-                    .insert(entry.key.clone(), decrypt_value(&entry.value_raw, private_key_hexes)?);
+                values.insert(
+                    entry.key.clone(),
+                    decrypt_value(&entry.value_raw, private_key_hexes)?,
+                );
             } else {
                 values.insert(entry.key.clone(), entry.value_raw.clone());
                 if !entry.value_raw.is_empty() {
@@ -1289,10 +1382,12 @@ impl DotenvDoc {
             }
         }
         plaintext_keys.sort();
-        Ok(DecryptedEnv { values, plaintext_keys })
+        Ok(DecryptedEnv {
+            values,
+            plaintext_keys,
+        })
     }
 }
-
 
 #[derive(Debug, Default)]
 struct MigrateStats {
@@ -1350,7 +1445,11 @@ fn migrate_one(path: &Path, dry_run: bool, stats: &mut MigrateStats) -> Result<(
     stats.headers_renamed += headers;
     println!(
         "{}{}: {values} value(s), {headers} header(s)",
-        if dry_run { "would migrate " } else { "migrated " },
+        if dry_run {
+            "would migrate "
+        } else {
+            "migrated "
+        },
         path.display()
     );
     if !dry_run && out != bytes {
@@ -1481,7 +1580,10 @@ fn encrypt_value(plain: &str, public_key_hex: &str) -> Result<String> {
     let public = hex::decode(public_key_hex).context("decode public key")?;
     let cipher =
         ecies_encrypt(&public, plain.as_bytes()).map_err(|err| anyhow!("encrypt value: {err}"))?;
-    Ok(format!("{VAULT_ENCRYPTED_PREFIX}{}", BASE64_STANDARD.encode(cipher)))
+    Ok(format!(
+        "{VAULT_ENCRYPTED_PREFIX}{}",
+        BASE64_STANDARD.encode(cipher)
+    ))
 }
 
 fn decrypt_value(ciphertext: &str, private_key_hexes: &[String]) -> Result<String> {
@@ -1500,7 +1602,9 @@ fn decrypt_value(ciphertext: &str, private_key_hexes: &[String]) -> Result<Strin
     if encoded.is_empty() {
         return Ok(String::new());
     }
-    let blob = BASE64_STANDARD.decode(encoded).context("decode ciphertext")?;
+    let blob = BASE64_STANDARD
+        .decode(encoded)
+        .context("decode ciphertext")?;
     if private_key_hexes.is_empty() {
         bail!("private key is required");
     }
@@ -1558,7 +1662,11 @@ fn restore_backup_path(env_file: &Path) -> PathBuf {
 
     let digest = Sha256::digest(env_file.display().to_string().as_bytes());
     let name = format!("{}.enc", hex::encode(&digest[..16]));
-    env_file.parent().unwrap_or_else(|| Path::new(".")).join(".vault-restore").join(name)
+    env_file
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(".vault-restore")
+        .join(name)
 }
 
 fn save_restore_backup(env_file: &Path, bytes: &[u8]) -> Result<()> {
@@ -1567,7 +1675,10 @@ fn save_restore_backup(env_file: &Path, bytes: &[u8]) -> Result<()> {
 
 fn resolve_hook_repo_root(vault_dir: Option<PathBuf>) -> Result<PathBuf> {
     let cwd = env::current_dir().context("read current dir")?;
-    let start = vault_dir.as_deref().map(|path| absolutize_path(path, &cwd)).unwrap_or(cwd);
+    let start = vault_dir
+        .as_deref()
+        .map(|path| absolutize_path(path, &cwd))
+        .unwrap_or(cwd);
     git_repo_root_from(&start)
         .map_err(|_| anyhow!("vault dir not found (run inside a git repo or set --vault-dir)"))
 }
@@ -1580,7 +1691,10 @@ fn git_hooks_dir(repo_root: &Path) -> Result<PathBuf> {
         .output()
         .with_context(|| format!("run git hooks dir in {}", repo_root.display()))?;
     if !output.status.success() {
-        bail!("unable to resolve git hooks dir for {}", repo_root.display());
+        bail!(
+            "unable to resolve git hooks dir for {}",
+            repo_root.display()
+        );
     }
     let relative = String::from_utf8_lossy(&output.stdout).trim().to_owned();
     Ok(absolutize_path(Path::new(&relative), repo_root))
@@ -1605,9 +1719,9 @@ fn render_vault_pre_commit_hook() -> String {
 }
 
 fn is_managed_hook(bytes: &[u8]) -> bool {
-    // Note: the pre-extraction marker "# si-vault:hook pre-commit vN" contains this
-    // substring, so hooks installed by the old tool are still recognised (and thus
-    // replaceable with --force) without naming them.
+    // Note: the pre-extraction hook marker contains this substring, so hooks
+    // installed by the old tool are still recognised (and thus replaceable
+    // with --force) without matching on the retired marker text.
     String::from_utf8_lossy(bytes).contains("vault:hook pre-commit")
 }
 
@@ -1686,7 +1800,11 @@ fn discover_dotenv_files_inner(
     for entry in fs::read_dir(root).with_context(|| format!("read {}", root.display()))? {
         let entry = entry.with_context(|| format!("read {}", root.display()))?;
         let path = entry.path();
-        if entry.file_type().with_context(|| format!("stat {}", path.display()))?.is_dir() {
+        if entry
+            .file_type()
+            .with_context(|| format!("stat {}", path.display()))?
+            .is_dir()
+        {
             if path.file_name().map(|name| name == ".git").unwrap_or(false) {
                 continue;
             }
@@ -1722,7 +1840,11 @@ fn path_is_within(child: &Path, parent: &Path) -> bool {
 }
 
 fn absolutize_path(path: &Path, base: &Path) -> PathBuf {
-    if path.is_absolute() { path.to_path_buf() } else { base.join(path) }
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base.join(path)
+    }
 }
 
 fn normalize_trailing_args(mut args: Vec<String>) -> Vec<String> {
@@ -1781,7 +1903,8 @@ mod tests {
 
     #[test]
     fn migrate_preserves_comments_blank_lines_and_order() {
-        let input = "SI_VAULT_PUBLIC_KEY=03ab\n\n# a comment\nB=encrypted:si-vault:QUJD\nPLAIN=keepme\n";
+        let input =
+            "SI_VAULT_PUBLIC_KEY=03ab\n\n# a comment\nB=encrypted:si-vault:QUJD\nPLAIN=keepme\n";
         let (out, _, _) = migrate(input);
         assert_eq!(
             out,
@@ -1801,7 +1924,10 @@ mod tests {
         let (public, private) = generate_keypair();
         let cipher = encrypt_value("s3cret", &public).expect("encrypt");
         assert!(cipher.starts_with(VAULT_ENCRYPTED_PREFIX));
-        assert_eq!(decrypt_value(&cipher, &[private]).expect("decrypt"), "s3cret");
+        assert_eq!(
+            decrypt_value(&cipher, &[private]).expect("decrypt"),
+            "s3cret"
+        );
     }
 
     /// Steady state is single-format: ANY non-current encrypted-ish label is refused
@@ -1851,8 +1977,12 @@ mod tests {
     #[test]
     fn managed_hook_detection_covers_old_markers_by_substring() {
         assert!(is_managed_hook(b"#!/bin/sh\n# vault:hook pre-commit v1\n"));
-        assert!(is_managed_hook(b"#!/bin/sh\n# si-vault:hook pre-commit v1\n"));
-        assert!(is_managed_hook(b"#!/bin/sh\n# si-vault:hook pre-commit v2\n"));
+        assert!(is_managed_hook(
+            b"#!/bin/sh\n# si-vault:hook pre-commit v1\n"
+        ));
+        assert!(is_managed_hook(
+            b"#!/bin/sh\n# si-vault:hook pre-commit v2\n"
+        ));
         assert!(!is_managed_hook(b"#!/bin/sh\necho hi\n"));
     }
 

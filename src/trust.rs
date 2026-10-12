@@ -53,7 +53,10 @@ pub enum TrustStoreError {
 
 impl TrustStore {
     pub fn empty() -> Self {
-        Self { schema_version: TRUST_SCHEMA_VERSION, entries: Vec::new() }
+        Self {
+            schema_version: TRUST_SCHEMA_VERSION,
+            entries: Vec::new(),
+        }
     }
 
     pub fn load(path: impl AsRef<Path>) -> Result<Self, TrustStoreError> {
@@ -74,7 +77,11 @@ impl TrustStore {
         if store.schema_version < TRUST_SCHEMA_VERSION {
             store.schema_version = TRUST_SCHEMA_VERSION;
         }
-        store.entries = store.entries.into_iter().map(|entry| entry.normalized()).collect();
+        store.entries = store
+            .entries
+            .into_iter()
+            .map(|entry| entry.normalized())
+            .collect();
         Ok(store)
     }
 
@@ -126,7 +133,8 @@ impl TrustStore {
         use std::io::Write as _;
         tmp.write_all(&raw).map_err(TrustStoreError::WriteTemp)?;
         tmp.flush().map_err(TrustStoreError::WriteTemp)?;
-        tmp.persist(path).map_err(|err| TrustStoreError::Persist(err.error))?;
+        tmp.persist(path)
+            .map_err(|err| TrustStoreError::Persist(err.error))?;
         set_file_mode(path, 0o600).map_err(TrustStoreError::SetPermissions)?;
         Ok(())
     }
@@ -215,7 +223,11 @@ mod tests {
         assert!(!entry.trusted_at.is_empty());
         #[cfg(unix)]
         {
-            let mode = fs::metadata(&path).expect("stat trust store").permissions().mode() & 0o777;
+            let mode = fs::metadata(&path)
+                .expect("stat trust store")
+                .permissions()
+                .mode()
+                & 0o777;
             assert_eq!(mode, 0o600);
         }
     }

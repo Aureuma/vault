@@ -101,11 +101,17 @@ pub fn has_direct_git_children(dir: &Path) -> bool {
     let Ok(entries) = fs::read_dir(dir) else {
         return false;
     };
-    entries.filter_map(|entry| entry.ok()).any(|entry| is_git_repo_dir(&entry.path()))
+    entries
+        .filter_map(|entry| entry.ok())
+        .any(|entry| is_git_repo_dir(&entry.path()))
 }
 
 fn render_text_value(value: &str) -> String {
-    if value.trim().is_empty() { "-".to_owned() } else { value.trim().to_owned() }
+    if value.trim().is_empty() {
+        "-".to_owned()
+    } else {
+        value.trim().to_owned()
+    }
 }
 
 fn render_option_text_value(value: Option<&str>) -> String {
@@ -129,8 +135,8 @@ struct TrustLookupView {
 }
 
 /// JSON field names are held byte-compatible with the pre-extraction output
-/// (`found`/`matches`/`stored_fingerprint`/`trusted_at`) so any consumer of
-/// `si vault trust lookup --format json` keeps working against `vault`.
+/// (`found`/`matches`/`stored_fingerprint`/`trusted_at`) so existing
+/// `vault trust lookup --format json` consumers keep working.
 pub fn show_trust_lookup(
     path: PathBuf,
     repo_root: &str,
@@ -142,13 +148,19 @@ pub fn show_trust_lookup(
     let entry = store.find(repo_root, file);
     let view = TrustLookupView {
         found: entry.is_some(),
-        matches: entry.map(|entry| entry.fingerprint.trim() == fingerprint.trim()).unwrap_or(false),
+        matches: entry
+            .map(|entry| entry.fingerprint.trim() == fingerprint.trim())
+            .unwrap_or(false),
         repo_root: repo_root.trim().to_owned(),
         file: file.trim().to_owned(),
         expected_fingerprint: fingerprint.trim().to_owned(),
         stored_fingerprint: entry.map(|entry| entry.fingerprint.clone()),
         trusted_at: entry.and_then(|entry| {
-            if entry.trusted_at.trim().is_empty() { None } else { Some(entry.trusted_at.clone()) }
+            if entry.trusted_at.trim().is_empty() {
+                None
+            } else {
+                Some(entry.trusted_at.clone())
+            }
         }),
     };
 
@@ -159,12 +171,18 @@ pub fn show_trust_lookup(
             println!("matches={}", view.matches);
             println!("repo_root={}", render_text_value(&view.repo_root));
             println!("file={}", render_text_value(&view.file));
-            println!("expected_fingerprint={}", render_text_value(&view.expected_fingerprint));
+            println!(
+                "expected_fingerprint={}",
+                render_text_value(&view.expected_fingerprint)
+            );
             println!(
                 "stored_fingerprint={}",
                 render_option_text_value(view.stored_fingerprint.as_deref())
             );
-            println!("trusted_at={}", render_option_text_value(view.trusted_at.as_deref()));
+            println!(
+                "trusted_at={}",
+                render_option_text_value(view.trusted_at.as_deref())
+            );
         }
     }
 

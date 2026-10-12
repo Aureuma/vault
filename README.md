@@ -16,8 +16,7 @@ job. Encrypted material lives in the private `safe` repo. This repo has **zero**
 dependency on any other Aureuma codebase.
 
 See [docs/VAULT.md](docs/VAULT.md) for the format, keyring, commands, and
-Fort boundary. The historical extraction record lives in
-[plans/VAULT_EXTRACTION.md](plans/VAULT_EXTRACTION.md).
+Fort boundary.
 
 ## Build & test
 
