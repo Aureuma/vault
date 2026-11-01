@@ -105,6 +105,22 @@ pub enum VaultCommand {
         #[arg(long = "in-place", action = ArgAction::SetTrue)]
         in_place: bool,
     },
+    EncryptFile {
+        #[command(flatten)]
+        target: VaultTargetArgs,
+        #[arg(long = "in")]
+        input: PathBuf,
+        #[arg(long = "out")]
+        output: PathBuf,
+    },
+    DecryptFile {
+        #[command(flatten)]
+        target: VaultTargetArgs,
+        #[arg(long = "in")]
+        input: PathBuf,
+        #[arg(long = "out")]
+        output: PathBuf,
+    },
     Restore {
         #[arg(long = "env-file")]
         env_file: Option<PathBuf>,
@@ -375,6 +391,16 @@ pub fn run_vault_command(command: VaultCommand) -> Result<()> {
             inplace,
             in_place,
         } => run_vault_decrypt(target, stdout, inplace || in_place),
+        VaultCommand::EncryptFile {
+            target,
+            input,
+            output,
+        } => run_vault_encrypt_file(target, input, output),
+        VaultCommand::DecryptFile {
+            target,
+            input,
+            output,
+        } => run_vault_decrypt_file(target, input, output),
         VaultCommand::Restore { env_file, file } => run_vault_restore(env_file.or(file)),
         VaultCommand::Set {
             target,
@@ -693,6 +719,43 @@ fn run_vault_decrypt(target: VaultTargetArgs, stdout: bool, inplace: bool) -> Re
     if print_stdout {
         print!("{}", String::from_utf8_lossy(&doc.bytes()));
     }
+    Ok(())
+}
+
+fn run_vault_encrypt_file(target: VaultTargetArgs, input: PathBuf, output: PathBuf) -> Result<()> {
+    let target = resolve_vault_target(&target, None)?;
+    let doc = DotenvDoc::read(&target.env_file)?;
+    let public_key = doc.public_key().with_context(|| {
+        format!(
+            "scope {}/{} has no {} header; refusing to encrypt to an unknown key",
+            target.repo, target.env, VAULT_PUBLIC_KEY_HEADER
+        )
+    })?;
+    let plain = fs::read(&input).with_context(|| format!("read {}", input.display()))?;
+    let cipher = encrypt_bytes(&plain, &public_key)?;
+    write_secret_file(&output, &cipher)?;
+    println!("in={}", input.display());
+    println!("out={}", output.display());
+    println!("repo={}", target.repo);
+    println!("env={}", target.env);
+    println!("plain_bytes={}", plain.len());
+    println!("cipher_bytes={}", cipher.len());
+    Ok(())
+}
+
+fn run_vault_decrypt_file(target: VaultTargetArgs, input: PathBuf, output: PathBuf) -> Result<()> {
+    guard_local_secret_ops("decrypt-file")?;
+    let target = resolve_vault_target(&target, None)?;
+    let keyring_path = resolve_keyring_path();
+    let entry = load_keyring_entry_or_canonical(&keyring_path, &target)?;
+    let blob = fs::read(&input).with_context(|| format!("read {}", input.display()))?;
+    let plain = decrypt_bytes(&blob, &private_key_candidates(&entry))?;
+    write_secret_file(&output, &plain)?;
+    println!("in={}", input.display());
+    println!("out={}", output.display());
+    println!("repo={}", target.repo);
+    println!("env={}", target.env);
+    println!("plain_bytes={}", plain.len());
     Ok(())
 }
 
@@ -1213,6 +1276,12 @@ impl DotenvDoc {
         );
     }
 
+    fn public_key(&self) -> Option<String> {
+        self.lookup(VAULT_PUBLIC_KEY_HEADER)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    }
+
     fn lookup(&self, key: &str) -> Option<String> {
         let key = key.trim();
         let mut value = None;
@@ -1625,6 +1694,36 @@ fn decrypt_value(ciphertext: &str, private_key_hexes: &[String]) -> Result<Strin
     Err(last_error.unwrap_or_else(|| anyhow!("private key is required")))
 }
 
+fn encrypt_bytes(plain: &[u8], public_key_hex: &str) -> Result<Vec<u8>> {
+    let public_key_hex = public_key_hex.trim();
+    if public_key_hex.is_empty() {
+        bail!("public key is required");
+    }
+    let public = hex::decode(public_key_hex).context("decode public key")?;
+    ecies_encrypt(&public, plain).map_err(|err| anyhow!("encrypt bytes: {err}"))
+}
+
+fn decrypt_bytes(blob: &[u8], private_key_hexes: &[String]) -> Result<Vec<u8>> {
+    if private_key_hexes.is_empty() {
+        bail!("private key is required");
+    }
+    let mut last_error = None;
+    for candidate in private_key_hexes {
+        let private = match hex::decode(candidate.trim()) {
+            Ok(value) => value,
+            Err(err) => {
+                last_error = Some(anyhow!(err).context("decode private key"));
+                continue;
+            }
+        };
+        match ecies_decrypt(&private, blob) {
+            Ok(plain) => return Ok(plain),
+            Err(err) => last_error = Some(anyhow!("decrypt bytes: {err}")),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| anyhow!("private key is required")))
+}
+
 fn read_or_empty(path: &Path) -> Result<DotenvDoc> {
     match fs::read(path) {
         Ok(bytes) => Ok(DotenvDoc::parse(&bytes)),
@@ -1917,6 +2016,33 @@ mod tests {
         let (out, values, headers) = migrate("A=hello\nB=encrypted-but-not-really\n");
         assert_eq!(out, "A=hello\nB=encrypted-but-not-really\n");
         assert_eq!((values, headers), (0, 0));
+    }
+
+    #[test]
+    fn file_bytes_round_trip_through_generated_keypair() {
+        let (public_key, private_key) = generate_keypair();
+        let plain: Vec<u8> = (0..4096).map(|i| (i % 251) as u8).collect();
+        let cipher = encrypt_bytes(&plain, &public_key).expect("encrypt");
+        assert_ne!(cipher, plain);
+        let back = decrypt_bytes(&cipher, &[private_key]).expect("decrypt");
+        assert_eq!(back, plain);
+    }
+
+    #[test]
+    fn file_bytes_reject_wrong_private_key() {
+        let (public_key, _) = generate_keypair();
+        let (_, wrong_private) = generate_keypair();
+        let cipher = encrypt_bytes(b"backup-bytes", &public_key).expect("encrypt");
+        assert!(decrypt_bytes(&cipher, &[wrong_private]).is_err());
+        assert!(decrypt_bytes(&cipher, &[]).is_err());
+    }
+
+    #[test]
+    fn dotenv_public_key_header_is_readable() {
+        let doc = DotenvDoc::parse(b"VAULT_PUBLIC_KEY=03ab\nA=1\n");
+        assert_eq!(doc.public_key().as_deref(), Some("03ab"));
+        let missing = DotenvDoc::parse(b"A=1\n");
+        assert_eq!(missing.public_key(), None);
     }
 
     #[test]
