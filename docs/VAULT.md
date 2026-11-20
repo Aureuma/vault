@@ -30,6 +30,7 @@ is enforced across scopes. This is a plain JSON state file, not the OS keychain.
 | `check` | refuse plaintext values (`--staged --all` = hook mode) |
 | `hooks install\|status\|uninstall` | manage the git pre-commit guard |
 | `encrypt` / `decrypt` | whole-file (`--stdout`, `--inplace`, `--reencrypt`) |
+| `encrypt-file` / `decrypt-file` | whole-file bytes with scope keys (`--in`, `--out`) |
 | `set` / `unset` / `get` / `list` | per-key operations (`get --reveal`) |
 | `run` | decrypt into a child process env: `vault run -- <cmd>` |
 | `restore` | restore the pre-decrypt backup (`.vault-restore/`) |
