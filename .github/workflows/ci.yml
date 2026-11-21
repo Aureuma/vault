@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 env:
   CARGO_BUILD_JOBS: 2
 
@@ -40,3 +43,26 @@ jobs:
       - name: Test
         shell: bash
         run: cargo test --locked --jobs 2
+
+  # NOTE: the `cargo audit` job lands as a follow-up after the lockfile bump
+  # PR merges (RUSTSEC-2026-0486 is still present in this tree, so an audit
+  # job would be red here by design). See branch chore/audit-job-followup.
+
+  # Aggregate success gate. Branch protection requires a `CI` status context;
+  # this job reports it only when every gate above passes.
+  CI:
+    runs-on: ubuntu-latest
+    needs: [check, test]
+    if: always()
+    steps:
+      - name: Verify all gates passed
+        shell: bash
+        run: |
+          set -u
+          for result in '${{ needs.check.result }}' '${{ needs.test.result }}'; do
+            if [[ "${result}" != "success" ]]; then
+              echo "CI gate failed: a required job reported '${result}'" >&2
+              exit 1
+            fi
+          done
+          echo "CI gate passed: check, test all green."
