@@ -26,3 +26,13 @@
 ## Version Source Of Truth
 - The canonical hard-coded version source is the root `Cargo.toml` under `[package].version`.
 - Do not add extra independently maintained repo version strings elsewhere.
+
+## Gates (zero GitHub Actions)
+- This repo runs zero GitHub Actions. `.github/workflows/` is intentionally
+  absent; do not re-add it (owner mandate 2026-11-22, see issue #4).
+- Required before every push/PR: `./scripts/gates.sh` (fmt --check,
+  clippy `-D warnings`, check --all-targets, test, cargo audit).
+  All green or don't push.
+- Releases: `./scripts/release.sh vX.Y.Z [--publish]`. The tag must match
+  `[package].version`; `--publish` uploads the tarballs + checksums to the
+  GitHub Release via `gh`.
