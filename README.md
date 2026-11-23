@@ -18,7 +18,15 @@ dependency on any other Aureuma codebase.
 See [docs/VAULT.md](docs/VAULT.md) for the format, keyring, commands, and
 Fort boundary.
 
-## Build & test
+## Build, test, release
+
+This repo runs zero GitHub Actions. Local gates are required before every
+push/PR:
+
+```bash
+./scripts/gates.sh            # fmt, clippy, check, test, audit
+./scripts/release.sh vX.Y.Z [--publish]
+```
 
 ```bash
 cargo build --locked --release
