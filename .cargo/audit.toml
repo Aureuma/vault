@@ -1,0 +1,23 @@
+# cargo-audit configuration for `vault`.
+#
+# RUSTSEC-2026-0543 (chrono is unmaintained) — IGNORED, deliberately and
+# reversibly, for the following documented reasons:
+#
+# 1. It is an *unmaintained-lint* advisory, not a vulnerability: no CVE, no
+#    memory-safety or soundness issue, no fixed version to upgrade to
+#    ("Solution: No fixed upgrade is available!"). `cargo audit` reports it
+#    as a warning, and the crate (chrono 0.4.x) is a mature, widely-used
+#    datetime library whose API is stable.
+# 2. `vault` uses chrono only for timestamp formatting/parsing of trust-store
+#    metadata (`trusted_at`) — no date arithmetic on untrusted input, no
+#    security-sensitive parsing path.
+# 3. The migration-vs-ignore decision (migrate to `time`/`jiff` vs. keep the
+#    ignore) is PENDING WITH THE REPO OWNER. This ignore is the reversible
+#    placeholder: delete the entry below to re-surface the warning.
+#
+# Revisit: when the owner decides, or when a maintained chrono successor
+# release / security advisory affecting our usage appears.
+# See: https://rustsec.org/advisories/RUSTSEC-2026-0543
+
+[advisories]
+ignore = ["RUSTSEC-2026-0543"]
